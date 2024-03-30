@@ -1,0 +1,29 @@
+[package]
+name = "stm32f103c8"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+#default=["stm32f1xx-hal/rt"]
+
+[dependencies]
+#cargo embed + rtt 在主机终端上显示调试信息 rprintln!("Hello, world!");
+rtt-target = "0.5.0"
+#OpenOCD+Semihosting 在主机终端上显示调试信息 hprintln!("Hello, world!").unwrap();
+#cortex-m-semihosting = "0.5.0"
+
+#stm32g0xx-hal会自动依赖一下三个包
+cortex-m = { version = "0.7.7",features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.3"
+embedded-hal = "0.2.7"
+panic-halt = "0.2.0"
+alloc-cortex-m = "0.4.4"
+
+byteorder = { version = "1.4.3", default-features = false}
+micromath = "2.1.0"
+
+[dependencies.stm32f1xx-hal]
+version = "0.10.0"
+features = ["stm32f103","rt"]

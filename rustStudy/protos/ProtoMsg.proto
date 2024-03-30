@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+message HelloWordRequest {
+    string hot_word_text=1;
+    string session_id = 2;
+}
+
+message HelloWordResponse {
+    int64 errcode = 1;
+    string errmsg = 2;
+    string session_id = 3;
+    bytes hot_word_model=4;
+}

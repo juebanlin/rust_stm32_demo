@@ -1,0 +1,20 @@
+[package]
+name = "rustStudy"
+version = "0.1.0"
+authors = ["juebanlin <juebanlin@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+proc-macro = true
+
+[dependencies]
+inline-python = "0.6.0"
+log = "0.4"
+log4rs = "1.0.0"
+futures = "0.3.15"
+async-std = "1.9.0"
+protobuf = "2.23.0"
+protobuf-codegen-pure = "2.23.0"
+[dependencies.async-executor]
+version = "^1.4"
