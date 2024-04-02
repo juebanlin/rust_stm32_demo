@@ -80,6 +80,7 @@ fn smbus_demo()->!{
         //外部时钟
         // clocks=rcc.cfgr.pclk1(8.MHz()).freeze(&mut flash.acr);
     }
+    I2c::
     let mut delay = cp.SYST.delay(&clocks);
     // Acquire the GPIOB peripheral
     let mut gpiob = dp.GPIOB.split();
