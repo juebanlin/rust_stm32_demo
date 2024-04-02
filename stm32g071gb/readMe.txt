@@ -1,3 +1,7 @@
+$ cargo install cargo-embed
+$ cargo install cargo-flash
+$ cargo install probe-rs-cli
+
 #发布
 cargo embed
 cargo embed --release

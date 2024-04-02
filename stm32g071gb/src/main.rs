@@ -27,13 +27,14 @@ use stm32g071gb::bq40z50r2::{Address, Cmd, BQ40Z50};
 use stm32g0xx_hal::analog::adc::{OversamplingRatio, Precision, SampleTime, VBat, VTemp};
 use stm32g0xx_hal::analog::dac::{Channel1, Enabled, GeneratorConfig};
 use stm32g0xx_hal::gpio::{OpenDrain, Output, Speed, PB6, PB7};
-use stm32g0xx_hal::i2c::{Config, I2c};
+use stm32g0xx_hal::i2c::{Config, Error, I2c};
 use stm32g0xx_hal::pac::rcc::apbsmenr1::I2C1SMEN_W;
 use stm32g0xx_hal::pac::I2C1;
 use stm32g0xx_hal::prelude::*;
 use stm32g0xx_hal::time::Hertz;
 use stm32g0xx_hal::timer::delay::Delay;
 use stm32g0xx_hal::{cortex_m, rcc, stm32 as device, stm32};
+use stm32g0xx_hal::rcc::{Prescaler, SysClockSrc};
 
 // this is the allocator the application will use
 #[global_allocator]
@@ -69,7 +70,32 @@ fn main() -> ! {
 fn smbus_demo() -> ! {
     let cp = cortex_m::Peripherals::take().unwrap();
     let dp = device::Peripherals::take().unwrap();
-    let mut rcc = dp.RCC.freeze(rcc::Config::default().)
+    // let mut rcc = dp.RCC.constrain();
+    let mut rcc = {   //时钟配置
+        //芯片提供以下时钟源，可产生主时钟：
+        //  HSI RC - 可产生 HSI16 时钟（约 16 MHz）的高速全集成 RC 振荡器
+        //  HSE OSC - 带外部晶振/陶瓷谐振器或外部时钟源的高速振荡器，可产生 HSE 时钟（4
+        // 到 48 MHz）
+        //  LSI RC - 可产生 LSI 时钟（约 32 kHz）的低速全集成 RC 振荡器
+        //  LSE OSC - 带外部晶振/陶瓷谐振器或外部时钟源的低速振荡器，可产生 LSE 时钟（精
+        // 确的 32.768 kHz 或高达 1 MHz 的外部时钟）
+        //  I2S_CKIN - 用于 I2S1 外设的直接时钟输入引脚
+        // 对于每个振荡器来说，在未使用时都可单独打开或者关闭，以降低功耗。有关功能的更多详
+        // 细信息，请查看本节的各小节。有关内部和外部时钟源的电气特性，请参见器件数据手册。
+        // 芯片通过对主时钟进行分频和/或倍频来产生次级时钟：
+        //  HSISYS - 源自 HSI16、通过 1 到 128 范围内的可编程系数进行分频的时钟
+        //  PLLPCLK、PLLQCLK 和 PLLRCLK - 从 PLL 块输出的时钟
+        //  SYSCLK - 通过选择 LSE、LSI、HSE、PLLRCLK 和 HSISYS 时钟之一获得的时钟
+        //  HCLK - 源自 SYSCLK、通过 1 到 512 范围内的可编程系数进行分频的时钟
+        //  HCLK8 - 源自 HCLK、进行 8 分频的时钟
+        //  PCLK - 源自 HCLK、通过 1 到 16 范围内的可编程系数进行分频的时钟
+        // I2Cx，有以下时钟源可供选择：
+        // – SYSCLK（系统时钟）
+        // – HSI16
+        // – PCLK（APB 时钟）
+        // 仅当时钟为 HSI16 时，支持从停止模式唤醒。
+        dp.RCC.freeze(rcc::Config::new(SysClockSrc::HSI(Prescaler::Div2)))//8M
+    };
     let mut delay = cp.SYST.delay(&mut rcc);
     let gpiob = dp.GPIOB.split(&mut rcc);
     //I2Cx，有以下时钟源可供选择：
@@ -88,62 +114,79 @@ fn smbus_demo() -> ! {
     //      通过将 I2C_CR1 寄存器中的 SMBHEN 位置 1 来使能 SMBus 主机地址 (0b0001 000)。
     //      通过将 I2C_CR1 寄存器中的 ALERTEN 位置 1 来使能报警响应地址 (0b0001100)。
     dp.I2C1.cr1.modify(|_, w| w.pe().set_bit()); //I2C开启
-    dp.I2C1.cr1.modify(|_, w| w.smbhen().clear_bit()); //取消从模式
-    dp.I2C1.cr1.modify(|_, w| w.smbden().clear_bit()); //取消从模式
+    dp.I2C1.cr1.modify(|_, w| w.smbhen().set_bit()); //取消从模式
+    dp.I2C1.cr1.modify(|_, w| w.smbden().set_bit()); //取消从模式
     dp.I2C1.cr1.modify(|_, w| w.alerten().clear_bit()); //取消报警
-
+    dp.I2C1.cr1.modify(|_, w| w.nostretch().clear_bit()); //该位用于在从模式下禁止时钟延长。它在主模式下必须保持清零
     dp.I2C1.cr1.modify(|_, w| w.pecen().clear_bit()); //禁止PE数据包错误校验
+    dp.I2C1.cr1.modify(|_, w| w.nackie().set_bit()); //接收到否定应答中断使能 (Not acknowledge received Interrupt enable)
     {
         //在主模式下，必须通过编程 I2C_TIMINGR 寄存器中的 PRESC[3:0]、SCLH[7:0] 和
         // SCLL[7:0] 位来配置 SCL 时钟的高电平和低电平。
         // 对于100kHz的标准速度，通常不需要配置SCLH和SCLL
         //fI2CCLK = 8 MHz 时的时序设置示例
         //31.4.10 I2C_TIMINGR 寄存器配置示例  100kHz
-        unsafe {
-            dp.I2C1.timingr.modify(|_, w| w.presc().bits(1u8));
-        }
-        unsafe {
-            dp.I2C1.timingr.modify(|_, w| w.scll().bits(0x13u8));
-        }
-        unsafe {
-            dp.I2C1.timingr.modify(|_, w| w.sclh().bits(0x0Fu8));
-        }
-        unsafe {
-            dp.I2C1.timingr.modify(|_, w| w.sdadel().bits(0x02u8));
-        }
-        unsafe {
-            dp.I2C1.timingr.modify(|_, w| w.scldel().bits(0x04u8));
-        }
+        // unsafe {
+        //     dp.I2C1.timingr.modify(|_, w| w.presc().bits(1u8));
+        // }
+        // unsafe {
+        //     dp.I2C1.timingr.modify(|_, w| w.scll().bits(0x13u8));
+        // }
+        // unsafe {
+        //     dp.I2C1.timingr.modify(|_, w| w.sclh().bits(0x0Fu8));
+        // }
+        // unsafe {
+        //     dp.I2C1.timingr.modify(|_, w| w.sdadel().bits(0x02u8));
+        // }
+        // unsafe {
+        //     dp.I2C1.timingr.modify(|_, w| w.scldel().bits(0x04u8));
+        // }
     }
+    dp.I2C1.cr1.modify(|_, w| w.txie().set_bit());
+    dp.I2C1.cr1.modify(|_, w| w.rxie().set_bit());
+    dp.I2C1.cr1.modify(|_, w| w.sbc().clear_bit());//从设备模式下的字节控制 (Slave byte control
+    dp.I2C1.cr1.modify(|_, w| w.pe().set_bit()); //I2C开启
 
-    let mut cfg = Config::new(Hertz::kHz(100));
-    cfg.timing_bits( rcc.clocks.apb_clk.to_MHz())
+
+    let mut cfg = Config::new(Hertz::kHz(100));//自动分频
     // cfg.speed.insert(Hertz::kHz(100));
     // cfg.slave_address( Address::Dev as u8);
-
     let mut i2c = dp.I2C1.i2c(sda, scl, cfg, &mut rcc);
-    // delay.delay(100.millis());
+
     //启用/禁用从字节控制。默认SBC已打开。对于主写入/读取，事务应在禁用SBC的情况下启动。因此，ACK将在最后一个接收到的字节上发送。在发送阶段之前，应再次启用SBC。
-    // i2c.slave_sbc(false);
-    let mut buffer = [0u8; 2];
-    i2c.write_read(0x16u8, &[0x09u8], &mut buffer).unwrap();
-    rprintln!("{},{}", buffer[0], buffer[1]);
-    loop {}
+    i2c.slave_sbc(false);
+    // let mut buffer = [0u8; 2];
+    // loop {
+    //     delay.delay(500.millis());
+    //     match i2c.write_read(0x0b, &[0x0d], &mut buffer) {
+    //         Ok(_) => { rprintln!("{},{}", buffer[0], buffer[1]);}
+    //         Err(err) => { rprintln!("error:{:?}", err);}
+    //     };
+    // }
 
     let mut bms = BQ40Z50::new(i2c);
-    delay.delay(100.millis());
+    rprintln!("start,addr:{}",Address::Dev as u8);
     loop {
-        rprintln!("start");
-        let temp = bms.get_cell_voltage_1().unwrap();
-        rprintln!("b");
-        let volt = bms.get_cell_voltage_2().unwrap();
-        rprintln!("v");
-        let curr = bms.get_cell_voltage_3().unwrap();
+        delay.delay(1000.millis());
+        let temp = bms.get_temperature().unwrap();
+        let volt = bms.get_voltage().unwrap();
+        let curr = bms.get_current().unwrap();
+        let cv1 = bms.get_cell_voltage_1().unwrap();
+        let cv2 = bms.get_cell_voltage_1().unwrap();
+        let cv3 = bms.get_cell_voltage_3().unwrap();
+        let cv4 = bms.get_cell_voltage_4().unwrap();
         rprintln!(
             "Temperature: {:.2}\n Voltage: {:.2}\n Current: {:.2}",
             temp,
             volt,
             curr
+        );
+        rprintln!(
+            "cell_voltage_1:{},cell_voltage_2:{},cell_voltage_3:{},cell_voltage_4:{}",
+            cv1,
+            cv2,
+            cv3,
+            cv4
         );
     }
 }

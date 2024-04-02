@@ -5,7 +5,7 @@ use embedded_hal::blocking::i2c::WriteRead;
 #[derive(Copy, Clone)]
 pub enum Address {
     /// Device address
-    Dev = 0x16,
+    Dev = 0x16 >> 1 & 0xFF,
     /// Register of MAC
     Mac = 0x44,
 }
